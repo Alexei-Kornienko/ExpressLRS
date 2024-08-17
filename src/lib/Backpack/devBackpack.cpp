@@ -18,6 +18,7 @@ bool VRxBackpackWiFiReadyToSend = false;
 bool HTEnableFlagReadyToSend = false;
 
 bool lastRecordingState = false;
+uint8_t vtxChannelBandIdx = 0;
 
 #if defined(GPIO_PIN_BACKPACK_EN)
 
@@ -30,7 +31,8 @@ bool lastRecordingState = false;
 #include "CRSF.h"
 #include "hwTimer.h"
 
-[[noreturn]] void startPassthrough()
+    [[noreturn]] void
+    startPassthrough()
 {
     // stop everything
     devicesStop();
@@ -233,24 +235,38 @@ static void AuxStateToMSPOut()
     const uint8_t auxNumber = (config.GetDvrAux() - 1) / 2 + 4;
     const uint8_t auxInverted = (config.GetDvrAux() + 1) % 2;
 
-    const bool recordingState = CRSF_to_BIT(ChannelData[auxNumber]) ^ auxInverted;
+    const uint16_t auxValue = CRSF_to_UINT10(ChannelData[auxNumber]) ^ auxInverted;
 
-    if (recordingState == lastRecordingState)
+    uint8_t vtxIdx = 0;
+
+    // Set band and channel here
+    if (auxValue < 166) { // Button 1
+        vtxIdx = 1;
+    } else if (auxValue < 332) { // Button 2
+        vtxIdx = 2;
+    } else if (auxValue < 498) { // Button 3
+        vtxIdx = 3;
+    } else if (auxValue < 664) { // Button 4
+        vtxIdx = 4;
+    } else if (auxValue < 830) { // Button 5
+        vtxIdx = 5;
+    } else { // Button 6
+        vtxIdx = 6;
+    }
+
+    if (vtxIdx == vtxChannelBandIdx)
     {
         // Channel state has not changed since we last checked
         return;
     }
-    lastRecordingState = recordingState;
-
-    const uint16_t delay = GetDvrDelaySeconds(recordingState ? config.GetDvrStartDelay() : config.GetDvrStopDelay());
+    vtxChannelBandIdx = vtxIdx;
 
     mspPacket_t packet;
     packet.reset();
     packet.makeCommand();
-    packet.function = MSP_ELRS_BACKPACK_SET_RECORDING_STATE;
-    packet.addByte(recordingState);
-    packet.addByte(delay & 0xFF); // delay byte 1
-    packet.addByte(delay >> 8); // delay byte 2
+    packet.function = MSP_SET_VTX_CONFIG;
+    packet.addByte(vtxIdx);
+    packet.addByte(0);
 
     MSP::sendPacket(&packet, TxBackpack); // send to tx-backpack as MSP
 #endif // USE_TX_BACKPACK
